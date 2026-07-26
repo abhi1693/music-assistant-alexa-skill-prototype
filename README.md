@@ -6,6 +6,12 @@ This fork is the maintained source for
 history from
 [`alams154/music-assistant-alexa-skill-prototype`](https://github.com/alams154/music-assistant-alexa-skill-prototype).
 Published images include both `linux/amd64` and `linux/arm64`.
+Image builds use the pinned reusable
+[`abhi1693/actions`](https://github.com/abhi1693/actions) Docker workflow with
+native ARM execution, registry-backed BuildKit cache, and GitHub Actions cache.
+The Dockerfile keeps OS, Python, npm, and application source in separate cache
+layers, uses supported Node.js 22 for ASK CLI, and sends only runtime inputs in
+the build context.
 
 The fork also restores queue continuation for screenless Echo devices:
 `AudioPlayer.PlaybackNearlyFinished` responds with a directive-only

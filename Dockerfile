@@ -1,41 +1,65 @@
-FROM ubuntu:22.04
+# syntax=docker/dockerfile:1.7
 
-ENV DEBIAN_FRONTEND=noninteractive
+# renovate: datasource=docker depName=ubuntu
+FROM ubuntu:22.04@sha256:0e0a0fc6d18feda9db1590da249ac93e8d5abfea8f4c3c0c849ce512b5ef8982
 
-# Install Python and system dependencies
-RUN apt-get update && \
-    apt-get install -y python3.10 python3.10-venv python3-pip libssl-dev curl gnupg ca-certificates && \
-    # Install Node.js 18 from NodeSource (ASK CLI requires a modern Node version)
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-    apt-get install -y nodejs && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+ARG ASK_CLI_VERSION=2.30.7
+ARG DEBUG_PORT=0
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gnupg \
+        libssl-dev \
+        python3.10 \
+        python3.10-venv && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs
 
 WORKDIR /app
 
-# Copy only requirements first, then install dependencies
+# Dependency layers change only when the lock inputs or Dockerfile change.
 COPY app/requirements.txt /app/requirements.txt
-RUN python3.10 -m venv venv && \
-    . venv/bin/activate && \
-    pip install --upgrade pip && \
-    pip install -r requirements.txt && \
-    pip install debugpy
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3.10 -m venv /app/venv && \
+    /app/venv/bin/python -m pip install --upgrade pip && \
+    /app/venv/bin/python -m pip install \
+        --requirement /app/requirements.txt \
+        debugpy
 
-# Apply verifier.py patch inside the venv so the container runtime has the fix
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --global "ask-cli@${ASK_CLI_VERSION}"
+
+# Patch verifier.py for timezone-aware certificate validity checks.
 RUN /app/venv/bin/python - <<'PY'
-import sysconfig, os, sys
+import os
+import sys
+import sysconfig
+
 try:
-        site = sysconfig.get_paths()['purelib']
+    site = sysconfig.get_paths()['purelib']
 except Exception:
-        print('Could not determine site-packages path; skipping verifier patch')
-        sys.exit(0)
+    print('Could not determine site-packages path; skipping verifier patch')
+    sys.exit(0)
 
-verifier_path = os.path.join(site, 'ask_sdk_webservice_support', 'verifier.py')
+verifier_path = os.path.join(
+    site,
+    'ask_sdk_webservice_support',
+    'verifier.py',
+)
 if not os.path.exists(verifier_path):
-        print('verifier.py not found at', verifier_path, '; skipping patch')
-        sys.exit(0)
+    print('verifier.py not found at', verifier_path, '; skipping patch')
+    sys.exit(0)
 
-with open(verifier_path, 'r', encoding='utf-8') as f:
-        src = f.read()
+with open(verifier_path, 'r', encoding='utf-8') as file_handle:
+    source = file_handle.read()
 
 needle = (
     '        now = datetime.utcnow()\n'
@@ -46,50 +70,46 @@ needle = (
 patch = (
     '        from datetime import timezone\n'
     '        now = datetime.now(timezone.utc)\n'
-    '        # Use timezone-aware UTC datetimes and updated cryptography properties\n'
-    "        not_valid_before = getattr(x509_cert, 'not_valid_before_utc', None) or x509_cert.not_valid_before.replace(tzinfo=timezone.utc)\n"
-    "        not_valid_after = getattr(x509_cert, 'not_valid_after_utc', None) or x509_cert.not_valid_after.replace(tzinfo=timezone.utc)\n"
+    '        # Use timezone-aware UTC datetimes and updated cryptography '
+    'properties\n'
+    "        not_valid_before = getattr(x509_cert, "
+    "'not_valid_before_utc', None) or "
+    'x509_cert.not_valid_before.replace(tzinfo=timezone.utc)\n'
+    "        not_valid_after = getattr(x509_cert, "
+    "'not_valid_after_utc', None) or "
+    'x509_cert.not_valid_after.replace(tzinfo=timezone.utc)\n'
     '        if not (not_valid_before <= now <= not_valid_after):\n'
     '            raise VerificationException("Signing Certificate expired")'
 )
 
-if needle in src:
-    new_src = src.replace(needle, patch)
-    backup = verifier_path + '.orig'
-    try:
-        if not os.path.exists(backup):
-            with open(backup, 'w', encoding='utf-8') as b:
-                b.write(src)
-        with open(verifier_path, 'w', encoding='utf-8') as f:
-            f.write(new_src)
-        print('Patched', verifier_path, '(backup at', backup + ')')
-    except Exception as e:
-        print('Failed to write patch:', e)
+if needle in source:
+    with open(verifier_path, 'w', encoding='utf-8') as file_handle:
+        file_handle.write(source.replace(needle, patch))
+    print('Patched', verifier_path)
 else:
     print('No patch needed for verifier.py')
 PY
 
-# Apply certvalidator registry.py patch so OS trust-root iteration does not crash
-# with asn1crypto >= 1.5.1. certvalidator 0.11.1 (2016) calls
-# trust_root.subject.hashable for every OS CA cert; asn1crypto 1.5.1 changed
-# NameTypeAndValue internals so that call raises KeyError for certain cert
-# structures present in modern CA stores. Wrap the call in try/except so
-# incompatible trust roots are skipped rather than aborting every Alexa request.
+# certvalidator 0.11.1 cannot hash some modern OS trust-root subjects with
+# asn1crypto >= 1.5.1. Skip only those incompatible roots.
 RUN /app/venv/bin/python - <<'PY'
-import sysconfig, os, sys
+import os
+import sys
+import sysconfig
+
 try:
-        site = sysconfig.get_paths()['purelib']
+    site = sysconfig.get_paths()['purelib']
 except Exception:
-        print('Could not determine site-packages path; skipping registry patch')
-        sys.exit(0)
+    print('Could not determine site-packages path; skipping registry patch')
+    sys.exit(0)
 
 registry_path = os.path.join(site, 'certvalidator', 'registry.py')
 if not os.path.exists(registry_path):
-        print('registry.py not found at', registry_path, '; skipping patch')
-        sys.exit(0)
+    print('registry.py not found at', registry_path, '; skipping patch')
+    sys.exit(0)
 
-with open(registry_path, 'r', encoding='utf-8') as f:
-        src = f.read()
+with open(registry_path, 'r', encoding='utf-8') as file_handle:
+    source = file_handle.read()
 
 needle = (
     '        for trust_root in trust_roots:\n'
@@ -98,7 +118,8 @@ needle = (
     '                self._subject_map[hashable] = []\n'
     '            self._subject_map[hashable].append(trust_root)\n'
     '            if trust_root.key_identifier:\n'
-    '                self._key_identifier_map[trust_root.key_identifier] = trust_root\n'
+    '                self._key_identifier_map[trust_root.key_identifier] = '
+    'trust_root\n'
     '            self._ca_lookup[trust_root.signature] = True'
 )
 patch = (
@@ -106,69 +127,46 @@ patch = (
     '            try:\n'
     '                hashable = trust_root.subject.hashable\n'
     '            except Exception:\n'
-    '                # Skip trust roots whose subject cannot be hashed by this\n'
-    '                # version of asn1crypto (certvalidator 0.11.1 incompatibility)\n'
+    '                # Skip subjects incompatible with this asn1crypto '
+    'version\n'
     '                continue\n'
     '            if hashable not in self._subject_map:\n'
     '                self._subject_map[hashable] = []\n'
     '            self._subject_map[hashable].append(trust_root)\n'
     '            if trust_root.key_identifier:\n'
-    '                self._key_identifier_map[trust_root.key_identifier] = trust_root\n'
+    '                self._key_identifier_map[trust_root.key_identifier] = '
+    'trust_root\n'
     '            self._ca_lookup[trust_root.signature] = True'
 )
 
-if needle in src:
-    new_src = src.replace(needle, patch)
-    backup = registry_path + '.orig'
-    try:
-        if not os.path.exists(backup):
-            with open(backup, 'w', encoding='utf-8') as b:
-                b.write(src)
-        with open(registry_path, 'w', encoding='utf-8') as f:
-            f.write(new_src)
-        print('Patched', registry_path, '(backup at', backup + ')')
-    except Exception as e:
-        print('Failed to write patch:', e)
+if needle in source:
+    with open(registry_path, 'w', encoding='utf-8') as file_handle:
+        file_handle.write(source.replace(needle, patch))
+    print('Patched', registry_path)
 else:
-    print('No patch needed for registry.py (needle not found)')
+    print('No patch needed for registry.py')
 PY
-# Install ASK CLI (v2) globally so container can run `ask configure`
-RUN npm install -g ask-cli || true
 
-# Now copy the rest of your source code (commented out for dynamic development)
+# Runtime source is intentionally copied after all dependency layers.
 COPY app /app/src
-# Copy the skill manifest and related app files so runtime can find app/skill.json
-# This ensures /app/app/skill.json exists inside the container for the create script.
-COPY app /app/app
-# Copy repository-level assets (icons, images) into the container so favicons are available
-COPY assets /app/assets
-# Copy top-level helper scripts so runtime can execute them (ask_create_skill.sh)
-COPY scripts /app/scripts
-RUN chmod +x /app/scripts/ask_create_skill.sh || true
+RUN ln -s /app/src /app/app
 
-# Amazon Skill & Host Configuration
-ENV AWS_DEFAULT_REGION=us-east-1
+COPY assets/icons /app/assets/icons
+COPY scripts/ask_create_skill.sh \
+    scripts/build_skill_manifest.py \
+    scripts/find_skills_to_delete.py \
+    /app/scripts/
+RUN chmod 0755 /app/scripts/ask_create_skill.sh
 
-# Timezone (defaults to UTC) — can be overridden at runtime via TZ env
-ENV TZ=UTC
+ENV AWS_DEFAULT_REGION=us-east-1 \
+    TZ=UTC \
+    MA_HOSTNAME="" \
+    SKILL_HOSTNAME="" \
+    PORT=5000 \
+    LOCALE=en-US \
+    QUIET_HTTP=1 \
+    DEBUG_PORT=${DEBUG_PORT}
 
-# Host configuration:
-# MA_HOSTNAME: hostname for the Music Assistant stream
-# SKILL_HOSTNAME: hostname used when creating the Alexa skill manifest and endpoints
-ENV MA_HOSTNAME=""
-ENV SKILL_HOSTNAME=""
-ENV PORT=5000
-ENV LOCALE=en-US
-# When set to 1 (default) we reduce HTTP request log noise (werkzeug/urllib3)
-ENV QUIET_HTTP=1
+EXPOSE 5000
 
-# Debugging Configuration
-ARG DEBUG_PORT=0
- # default 0 (disabled); launch.json default 5678
-ENV DEBUG_PORT=${DEBUG_PORT}
-
-# Expose the port the app runs on
-EXPOSE ${PORT}
-
-# If DEBUG_PORT is empty or set to 0, run without debugpy. Otherwise start debugpy.
 CMD ["/bin/sh", "-lc", "if [ -n \"${DEBUG_PORT}\" ] && [ \"${DEBUG_PORT}\" != \"0\" ]; then exec /app/venv/bin/python -m debugpy --listen 0.0.0.0:${DEBUG_PORT} src/app.py; else exec /app/venv/bin/python src/app.py; fi"]
