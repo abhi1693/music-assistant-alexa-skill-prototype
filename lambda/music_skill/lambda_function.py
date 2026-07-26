@@ -152,10 +152,19 @@ class BridgeClient:
                 )
                 if (value := err.headers.get(header))
             }
+            error_body = err.read(513)
+            body_preview = (
+                error_body[:512]
+                .decode("utf-8", errors="replace")
+                .replace("\r", " ")
+                .replace("\n", " ")
+            )
             LOGGER.warning(
-                "Bridge returned HTTP %s headers=%s",
+                "Bridge returned HTTP %s headers=%s body=%r truncated=%s",
                 err.code,
                 diagnostic_headers,
+                body_preview,
+                len(error_body) > 512,
             )
             raise BridgeError(
                 f"bridge returned HTTP {err.code}"
