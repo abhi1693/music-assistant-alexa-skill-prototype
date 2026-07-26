@@ -142,6 +142,21 @@ class BridgeClient:
         except error.HTTPError as err:
             if allow_not_found and err.code == 404:
                 return None
+            diagnostic_headers = {
+                header: value
+                for header in (
+                    "Server",
+                    "Content-Type",
+                    "CF-Ray",
+                    "CF-Mitigated",
+                )
+                if (value := err.headers.get(header))
+            }
+            LOGGER.warning(
+                "Bridge returned HTTP %s headers=%s",
+                err.code,
+                diagnostic_headers,
+            )
             raise BridgeError(
                 f"bridge returned HTTP {err.code}"
             ) from err
