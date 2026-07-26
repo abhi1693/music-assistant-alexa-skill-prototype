@@ -10,6 +10,10 @@ from typing import Any
 from uuid import uuid4
 
 
+class UnknownPlaybackCommandError(ValueError):
+    """Raised when metadata references a command lost from bridge memory."""
+
+
 class PlaybackCommandStore:
     """Track pending Music Assistant commands and Alexa playback events."""
 
@@ -52,6 +56,10 @@ class PlaybackCommandStore:
                 command["updatedAt"] = now
                 self._commands.move_to_end(command_id)
                 return deepcopy(command)
+            if supplied_command_id:
+                raise UnknownPlaybackCommandError(
+                    f"Unknown playback command: {command_id}"
+                )
 
             self._version += 1
             command = {
@@ -161,6 +169,8 @@ class PlaybackCommandStore:
             "playbackstopped": "stopped",
             "playbackfinished": "finished",
             "playbackfailed": "failed",
+            "resumerequested": "resume_pending",
+            "resumefailed": "stopped",
         }
         now = time.time()
 

@@ -2,7 +2,10 @@
 
 from flask import jsonify, request
 
-from .playback_store import PlaybackCommandStore
+from .playback_store import (
+    PlaybackCommandStore,
+    UnknownPlaybackCommandError,
+)
 
 
 _store = PlaybackCommandStore()
@@ -38,6 +41,8 @@ def register_routes(bp):
         data = request.get_json(silent=True) or {}
         try:
             command = _store.create_or_update(data)
+        except UnknownPlaybackCommandError:
+            return jsonify({'error': 'Unknown playback command'}), 404
         except ValueError:
             return jsonify({'error': 'Missing required fields'}), 400
         return jsonify({

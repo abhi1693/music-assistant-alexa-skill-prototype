@@ -146,7 +146,13 @@ resume and hardware-control requests device-specific. Music Assistant can wait
 for Alexa's acknowledgement through
 `GET /ma/playback-status/<commandId>`. These `/ma` endpoints use the configured
 `APP_USERNAME` and `APP_PASSWORD`; the public Alexa request endpoint remains
-`POST /`.
+`POST /`. Metadata updates must reference a command still known to the bridge.
+If the bridge restarted and lost its in-memory command state, an update for the
+old command ID returns `404` instead of recreating an untargeted pending
+command that a later Echo invocation could claim.
+Pause and resume reuse that correlated command. A resume request moves the
+command back to a pending acknowledgement state so Music Assistant does not
+show playback until Alexa sends a new `AudioPlayer.PlaybackStarted` event.
 
 The Music model uses `GET /ma/music/claim` instead. Music directives identify
 the Alexa account rather than one physical Echo, so this endpoint intentionally

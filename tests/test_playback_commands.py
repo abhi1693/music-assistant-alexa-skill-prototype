@@ -9,7 +9,10 @@ APP_ROOT = Path(__file__).resolve().parents[1] / "app"
 sys.path.insert(0, str(APP_ROOT))
 
 from music_assistant_api import ma_routes
-from music_assistant_api.playback_store import PlaybackCommandStore
+from music_assistant_api.playback_store import (
+    PlaybackCommandStore,
+    UnknownPlaybackCommandError,
+)
 
 
 class PlaybackCommandStoreTests(unittest.TestCase):
@@ -77,6 +80,16 @@ class PlaybackCommandStoreTests(unittest.TestCase):
         )
         self.assertIsNone(self.store.claim("another-device"))
 
+    def test_unknown_metadata_update_does_not_create_pending_command(self):
+        with self.assertRaises(UnknownPlaybackCommandError):
+            self.store.create_or_update({
+                "commandId": "lost-after-bridge-restart",
+                "streamUrl": "http://ma/flow/stale.mp3",
+                "title": "Stale",
+            })
+
+        self.assertIsNone(self.store.claim("alexa-device"))
+
     def test_known_alexa_device_claims_only_its_target(self):
         initial = self.store.create_or_update({
             "streamUrl": "http://ma/flow/initial.mp3",
@@ -104,6 +117,30 @@ class PlaybackCommandStoreTests(unittest.TestCase):
             self.store.claim("alexa-device-b")["commandId"],
             other["commandId"],
         )
+
+    def test_resume_lifecycle_waits_for_new_playback_started_event(self):
+        command = self.store.create_or_update({
+            "streamUrl": "http://ma/flow/song.mp3",
+        })
+        self.store.claim("alexa-device")
+        self.store.record_event(
+            command["commandId"],
+            "AudioPlayer.PlaybackStopped",
+            alexa_device_id="alexa-device",
+        )
+
+        pending = self.store.record_event(
+            command["commandId"],
+            "MusicAssistant.ResumeRequested",
+        )
+        self.assertEqual(pending["status"], "resume_pending")
+
+        started = self.store.record_event(
+            command["commandId"],
+            "AudioPlayer.PlaybackStarted",
+            alexa_device_id="alexa-device",
+        )
+        self.assertEqual(started["status"], "started")
 
     def test_music_claim_does_not_apply_custom_device_affinity(self):
         initial = self.store.create_or_update({
@@ -169,6 +206,20 @@ class PlaybackCommandRouteTests(unittest.TestCase):
     def test_claim_without_pending_command_is_idle(self):
         response = self.client.get("/claim-url")
         self.assertEqual(response.status_code, 404)
+
+    def test_unknown_metadata_update_returns_not_found(self):
+        response = self.client.post("/push-url", json={
+            "commandId": "lost-after-bridge-restart",
+            "streamUrl": "http://ma/flow/stale.mp3",
+            "title": "Stale",
+        })
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.get_json(),
+            {"error": "Unknown playback command"},
+        )
+        self.assertEqual(self.client.get("/claim-url").status_code, 404)
 
     def test_music_claim_records_account_without_device_affinity(self):
         pushed = self.client.post("/push-url", json={
