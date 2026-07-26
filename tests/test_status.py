@@ -1,5 +1,6 @@
 """Regression tests for bridge status presentation."""
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -9,7 +10,10 @@ from types import SimpleNamespace
 APP_ROOT = Path(__file__).resolve().parents[1] / "app"
 sys.path.insert(0, str(APP_ROOT))
 
-from endpoints.status import _format_api_status
+from endpoints.status import (
+    _format_api_status,
+    _parse_skill_manifest_output,
+)
 
 
 class ApiStatusTests(unittest.TestCase):
@@ -46,6 +50,41 @@ class ApiStatusTests(unittest.TestCase):
             html,
         )
         self.assertIn('background:#fdf2f2', html)
+
+    def test_manifest_parser_prefers_music_lambda_over_icon_urls(self):
+        manifest = {
+            "manifest": {
+                "publishingInformation": {
+                    "locales": {
+                        "en-IN": {
+                            "smallIconUri": "https://example/icon.png",
+                        }
+                    }
+                },
+                "apis": {
+                    "music": {
+                        "endpoint": {
+                            "uri": (
+                                "arn:aws:lambda:us-east-1:123456789012:"
+                                "function:music-assistant"
+                            )
+                        }
+                    }
+                },
+            }
+        }
+
+        model, endpoint, locales = _parse_skill_manifest_output(
+            json.dumps(manifest)
+        )
+
+        self.assertEqual(model, "Music")
+        self.assertEqual(
+            endpoint,
+            "arn:aws:lambda:us-east-1:123456789012:"
+            "function:music-assistant",
+        )
+        self.assertEqual(locales, ["en-IN"])
 
 
 if __name__ == "__main__":

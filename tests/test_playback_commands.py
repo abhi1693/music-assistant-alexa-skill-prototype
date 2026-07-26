@@ -105,6 +105,28 @@ class PlaybackCommandStoreTests(unittest.TestCase):
             other["commandId"],
         )
 
+    def test_music_claim_does_not_apply_custom_device_affinity(self):
+        initial = self.store.create_or_update({
+            "streamUrl": "https://ma/flow/initial.mp3",
+            "targetDeviceSerial": "echo-serial",
+        })
+        self.store.claim("custom-device")
+
+        group = self.store.create_or_update({
+            "streamUrl": "https://ma/flow/group.mp3",
+            "targetDeviceSerial": "wha-serial",
+            "targetDeviceFamily": "WHA",
+        })
+        claimed = self.store.claim_music("alexa-account")
+
+        self.assertEqual(claimed["commandId"], group["commandId"])
+        self.assertEqual(claimed["alexaUserId"], "alexa-account")
+        self.assertEqual(claimed["status"], "claimed")
+        self.assertEqual(
+            self.store.get(initial["commandId"])["status"],
+            "claimed",
+        )
+
 
 class PlaybackCommandRouteTests(unittest.TestCase):
     def setUp(self):
@@ -147,6 +169,24 @@ class PlaybackCommandRouteTests(unittest.TestCase):
     def test_claim_without_pending_command_is_idle(self):
         response = self.client.get("/claim-url")
         self.assertEqual(response.status_code, 404)
+
+    def test_music_claim_records_account_without_device_affinity(self):
+        pushed = self.client.post("/push-url", json={
+            "streamUrl": "https://ma/flow/group.mp3",
+            "targetDeviceFamily": "WHA",
+        })
+        command_id = pushed.get_json()["commandId"]
+
+        claimed = self.client.get(
+            "/music/claim?alexaUserId=opaque-account-id"
+        )
+
+        self.assertEqual(claimed.status_code, 200)
+        self.assertEqual(claimed.get_json()["commandId"], command_id)
+        self.assertEqual(
+            claimed.get_json()["alexaUserId"],
+            "opaque-account-id",
+        )
 
 
 if __name__ == "__main__":

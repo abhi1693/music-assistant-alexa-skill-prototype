@@ -1,0 +1,126 @@
+{
+  "manifest": {
+    "publishingInformation": {
+      "locales": {
+        "en-IN": {
+          "summary": "Play Music Assistant on Alexa devices and multi-room speaker groups.",
+          "examplePhrases": [
+            "Alexa, play music assistant",
+            "Alexa, play from music assistant",
+            "Alexa, play music assistant on party time"
+          ],
+          "keywords": [
+            "music",
+            "streaming",
+            "multi-room"
+          ],
+          "name": "Music Assistant",
+          "description": "Play audio selected in Music Assistant on Alexa devices and Alexa multi-room music groups.",
+          "smallIconUri": "https://raw.githubusercontent.com/abhi1693/music-assistant-alexa-skill-prototype/refs/heads/master/assets/icons/ma_108x108.png",
+          "largeIconUri": "https://raw.githubusercontent.com/abhi1693/music-assistant-alexa-skill-prototype/refs/heads/master/assets/icons/ma_512x512.png"
+        }
+      },
+      "isAvailableWorldwide": false,
+      "testingInstructions": "Enable the development skill, push a playback command from Music Assistant, and play Music Assistant on an Alexa device or multi-room group.",
+      "category": "STREAMING_SERVICE",
+      "distributionCountries": [
+        "IN"
+      ]
+    },
+    "events": {
+      "subscriptions": [
+        {
+          "eventName": "SKILL_ENABLED"
+        },
+        {
+          "eventName": "SKILL_DISABLED"
+        },
+        {
+          "eventName": "SKILL_ACCOUNT_LINKED"
+        },
+        {
+          "eventName": "AUDIO_ITEM_PLAYBACK_STARTED"
+        },
+        {
+          "eventName": "AUDIO_ITEM_PLAYBACK_FINISHED"
+        },
+        {
+          "eventName": "AUDIO_ITEM_PLAYBACK_STOPPED"
+        },
+        {
+          "eventName": "AUDIO_ITEM_PLAYBACK_FAILED"
+        }
+      ],
+      "endpoint": {
+        "uri": "arn:aws:lambda:us-east-1:000000000000:function:music-assistant-alexa-music"
+      }
+    },
+    "apis": {
+      "music": {
+        "endpoint": {
+          "uri": "arn:aws:lambda:us-east-1:000000000000:function:music-assistant-alexa-music"
+        },
+        "locales": {
+          "en-IN": {
+            "aliases": [
+              {
+                "name": "music assistant"
+              }
+            ],
+            "promptName": "Music Assistant"
+          }
+        },
+        "interfaces": [
+          {
+            "namespace": "Alexa.Audio.PlayQueue",
+            "requests": [
+              {
+                "name": "GetNextItem"
+              },
+              {
+                "name": "GetPreviousItem"
+              }
+            ],
+            "version": "1.0"
+          },
+          {
+            "namespace": "Alexa.Media.Playback",
+            "requests": [
+              {
+                "name": "Initiate"
+              }
+            ],
+            "version": "1.0"
+          },
+          {
+            "namespace": "Alexa.Media.PlayQueue",
+            "requests": [
+              {
+                "name": "GetItem"
+              }
+            ],
+            "version": "1.0"
+          },
+          {
+            "namespace": "Alexa.Media.Search",
+            "requests": [
+              {
+                "name": "GetPlayableContent"
+              }
+            ],
+            "version": "1.0"
+          }
+        ]
+      }
+    },
+    "manifestVersion": "1.0",
+    "permissions": [],
+    "privacyAndCompliance": {
+      "allowsPurchases": false,
+      "isExportCompliant": true,
+      "containsAds": false,
+      "isChildDirected": false,
+      "usesPersonalInfo": false
+    }
+  }
+}

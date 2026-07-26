@@ -1,0 +1,59 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Alexa Music Skill adapter for Music Assistant
+
+Parameters:
+  AlexaSkillId:
+    Type: String
+    AllowedPattern: "^amzn1\\.ask\\.skill\\.[0-9a-fA-F-]+$"
+  BridgeUrl:
+    Type: String
+    AllowedPattern: "^https://.+/ma/?$"
+  BridgeUsername:
+    Type: String
+    NoEcho: true
+  BridgePassword:
+    Type: String
+    NoEcho: true
+  FunctionName:
+    Type: String
+    Default: music-assistant-alexa-music
+
+Resources:
+  MusicSkillFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Ref FunctionName
+      Description: Resolves Music Assistant streams for Alexa multi-room playback
+      Architectures:
+        - arm64
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      CodeUri: .
+      MemorySize: 256
+      Timeout: 2
+      Environment:
+        Variables:
+          BRIDGE_URL: !Ref BridgeUrl
+          BRIDGE_USERNAME: !Ref BridgeUsername
+          BRIDGE_PASSWORD: !Ref BridgePassword
+          BRIDGE_TIMEOUT_SECONDS: "0.35"
+      Events:
+        AlexaMusicSkill:
+          Type: AlexaSkill
+          Properties:
+            SkillId: !Ref AlexaSkillId
+
+  MusicSkillLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${MusicSkillFunction}"
+      RetentionInDays: 14
+
+Outputs:
+  MusicSkillFunctionArn:
+    Description: Use this ARN in the existing Alexa Music skill manifest
+    Value: !GetAtt MusicSkillFunction.Arn

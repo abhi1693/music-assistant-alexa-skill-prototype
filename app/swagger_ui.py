@@ -63,6 +63,77 @@ OPENAPI_SPEC: Dict[str, Any] = {
                 },
             }
         },
+        "/ma/music/claim": {
+            "get": {
+                "summary": "Claim a pending command for the Alexa Music model",
+                "parameters": [
+                    {
+                        "name": "alexaUserId",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Claimed playback command",
+                        "content": {
+                            "application/json": {
+                                "schema": {"type": "object"},
+                            }
+                        },
+                    },
+                    "404": {"description": "No pending playback command"},
+                },
+            }
+        },
+        "/ma/playback-status/{commandId}": {
+            "get": {
+                "summary": "Get one correlated playback command",
+                "parameters": [
+                    {
+                        "name": "commandId",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string"},
+                    }
+                ],
+                "responses": {
+                    "200": {"description": "Playback command"},
+                    "404": {"description": "Unknown playback command"},
+                },
+            }
+        },
+        "/ma/playback-event": {
+            "post": {
+                "summary": "Record a correlated Alexa playback event",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "commandId": {"type": "string"},
+                                    "eventType": {"type": "string"},
+                                    "alexaDeviceId": {"type": "string"},
+                                    "offsetMilliseconds": {
+                                        "type": "integer",
+                                    },
+                                    "error": {"type": "string"},
+                                },
+                                "required": ["commandId", "eventType"],
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {"description": "Event recorded"},
+                    "400": {"description": "Missing required fields"},
+                    "404": {"description": "Unknown playback command"},
+                },
+            }
+        },
         "/": {
             "post": {
                 "summary": "Invoke the Alexa skill (test)",

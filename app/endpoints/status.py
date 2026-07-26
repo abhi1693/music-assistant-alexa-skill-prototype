@@ -16,6 +16,61 @@ from setup_helpers import has_functional_cli_config
 status_bp = Blueprint('status_bp', __name__)
 
 
+def _parse_skill_manifest_output(
+    output: str,
+) -> tuple[str | None, str | None, list[str]]:
+    """Return the Alexa model, endpoint, and locales from ASK CLI output."""
+    manifest_data = None
+    try:
+        manifest_data = json.loads(output)
+    except (TypeError, json.JSONDecodeError):
+        start = output.find('{') if isinstance(output, str) else -1
+        if start >= 0:
+            try:
+                manifest_data = json.loads(output[start:])
+            except json.JSONDecodeError:
+                manifest_data = None
+    if not isinstance(manifest_data, dict):
+        return None, None, []
+
+    manifest = manifest_data.get('manifest')
+    if not isinstance(manifest, dict):
+        return None, None, []
+    apis = manifest.get('apis')
+    if not isinstance(apis, dict):
+        return None, None, []
+
+    model = None
+    api_config = None
+    if isinstance(apis.get('music'), dict):
+        model = 'Music'
+        api_config = apis['music']
+    elif isinstance(apis.get('custom'), dict):
+        model = 'Custom'
+        api_config = apis['custom']
+
+    endpoint = None
+    if isinstance(api_config, dict):
+        endpoint_config = api_config.get('endpoint')
+        if isinstance(endpoint_config, dict):
+            endpoint_value = endpoint_config.get('uri')
+            if isinstance(endpoint_value, str) and endpoint_value:
+                endpoint = endpoint_value
+
+    publishing = manifest.get('publishingInformation')
+    publishing_locales = (
+        publishing.get('locales')
+        if isinstance(publishing, dict)
+        else None
+    )
+    locales = (
+        list(publishing_locales)
+        if isinstance(publishing_locales, dict)
+        else []
+    )
+    return model, endpoint, locales
+
+
 def _format_api_status(
     response,
     content_preview,
@@ -80,7 +135,9 @@ def _build_status_json():
                     sid = m.group(0)
                     mf = subprocess.run(['ask', 'smapi', 'get-skill-manifest', '--skill-id', sid, '--profile', 'default'], capture_output=True, text=True)
                     mf_out = mf.stdout or mf.stderr or ''
-                    mm = re.search(r'https?://[^"\s\)\]]+', mf_out)
+                    model, endpoint_uri, locale_list = (
+                        _parse_skill_manifest_output(mf_out)
+                    )
                     try:
                         if skill_host.startswith('http://') or skill_host.startswith('https://'):
                             cfg_host = urllib.parse.urlparse(skill_host).netloc
@@ -104,50 +161,49 @@ def _build_status_json():
                         testing_enabled = False
 
                     is_green = False
-                    if not mm:
+                    if not endpoint_uri:
                         testing_msg = 'testing enabled' if testing_enabled else 'testing not enabled'
-                        skill_ask_html = f'<span class="led yellow"></span> Music Assistant Skill interaction model {escape(sid)} found; endpoint not set ({testing_msg})'
+                        model_display = model or 'unknown'
+                        skill_ask_html = f'<span class="led yellow"></span> Music Assistant {escape(model_display)} model {escape(sid)} found; endpoint not set ({testing_msg})'
                     else:
-                        uri = mm.group(0)
                         try:
-                            parsed = urllib.parse.urlparse(uri)
-                            manifest_host = parsed.netloc
-                            locale_list = []
-                            try:
-                                mf_json = None
-                                try:
-                                    mf_json = json.loads(mf_out)
-                                except Exception:
-                                    idx = mf_out.find('{')
-                                    if idx != -1:
-                                        try:
-                                            mf_json = json.loads(mf_out[idx:])
-                                        except Exception:
-                                            mf_json = None
-                                if mf_json:
-                                    locales_obj = mf_json.get('manifest', {}).get('publishingInformation', {}).get('locales', {})
-                                    if isinstance(locales_obj, dict):
-                                        locale_list = list(locales_obj.keys())
-                            except Exception:
-                                locale_list = []
-
                             locale_display = ','.join(locale_list) if locale_list else 'unknown'
-
-                            if manifest_host == cfg_host:
-                                if testing_enabled:
-                                    skill_ask_html = f'<span class="led green"></span> Music Assistant Skill interaction model found; endpoint matches ({escape(manifest_host)}); testing enabled; locale: {escape(locale_display)}'
+                            if model == 'Music':
+                                lambda_configured = bool(
+                                    re.fullmatch(
+                                        r'arn:(aws|aws-us-gov|aws-cn):'
+                                        r'lambda:[a-z0-9-]+:\d{12}:'
+                                        r'function:[A-Za-z0-9-_]+'
+                                        r'(?::[A-Za-z0-9-_]+)?',
+                                        endpoint_uri,
+                                    )
+                                )
+                                if lambda_configured and testing_enabled:
+                                    skill_ask_html = f'<span class="led green"></span> Music Assistant Music model found; Lambda endpoint configured; testing enabled; locale: {escape(locale_display)}'
                                     is_green = True
+                                elif lambda_configured:
+                                    skill_ask_html = '<span class="led yellow"></span> Music Assistant Music model found; Lambda endpoint configured; testing NOT enabled'
                                 else:
-                                    skill_ask_html = f'<span class="led yellow"></span> Music Assistant Skill interaction model found and endpoint matches ({escape(manifest_host)}); testing NOT enabled'
+                                    skill_ask_html = '<span class="led red"></span> Music Assistant Music model endpoint is not a Lambda ARN'
                             else:
-                                testing_note = 'testing enabled' if testing_enabled else 'testing not enabled'
-                                skill_ask_html = f'<span class="led red"></span> Music Assistant Skill interaction model endpoint mismatch (manifest: {escape(manifest_host)} vs configured: {escape(cfg_host)}); {testing_note}'
+                                parsed = urllib.parse.urlparse(endpoint_uri)
+                                manifest_host = parsed.netloc
+                                if manifest_host == cfg_host:
+                                    if testing_enabled:
+                                        skill_ask_html = f'<span class="led green"></span> Music Assistant Custom model found; endpoint matches ({escape(manifest_host)}); testing enabled; locale: {escape(locale_display)}'
+                                        is_green = True
+                                    else:
+                                        skill_ask_html = f'<span class="led yellow"></span> Music Assistant Custom model found and endpoint matches ({escape(manifest_host)}); testing NOT enabled'
+                                else:
+                                    testing_note = 'testing enabled' if testing_enabled else 'testing not enabled'
+                                    skill_ask_html = f'<span class="led red"></span> Music Assistant Custom model endpoint mismatch (manifest: {escape(manifest_host)} vs configured: {escape(cfg_host)}); {testing_note}'
                         except Exception:
                             testing_msg = 'testing enabled' if testing_enabled else 'testing not enabled'
-                            skill_ask_html = f'<span class="led yellow"></span> Music Assistant Skill interaction model found; endpoint parse failed ({testing_msg})'
+                            model_display = model or 'unknown'
+                            skill_ask_html = f'<span class="led yellow"></span> Music Assistant {escape(model_display)} model found; endpoint parse failed ({testing_msg})'
 
                     try:
-                        if not is_green:
+                        if not is_green and model != 'Music':
                             skill_ask_html += ' <button onclick="window.location=\'/setup\'" style="margin-left:8px">Open Setup</button>'
                     except Exception:
                         pass
