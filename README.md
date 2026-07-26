@@ -13,12 +13,18 @@ The Dockerfile keeps OS, Python, npm, and application source in separate cache
 layers, uses supported Node.js 22 for ASK CLI, and sends only runtime inputs in
 the build context.
 
-The fork also restores queue continuation for screenless Echo devices:
-`AudioPlayer.PlaybackNearlyFinished` responds with a directive-only
-`REPLACE_ENQUEUED` request using the public `MA_HOSTNAME`. Expected `404`
-responses before the first Music Assistant stream or Alexa skill invocation are
-shown as yellow idle states on `/status`; unexpected API failures remain red.
-Both behaviors have regression coverage under `tests/`.
+The fork correlates every Music Assistant playback request with an opaque
+command ID. Alexa skill invocations claim pending commands in FIFO order, and
+`AudioPlayer` callbacks report whether the matching command was started,
+stopped, finished, or failed. This prevents concurrent Echo requests from
+sharing a single global stream slot and lets Music Assistant distinguish a sent
+Alexa command from confirmed playback. Transient Music Assistant flow URLs are
+not re-enqueued after `PlaybackNearlyFinished`, because those URLs can expire
+and return `404` while the old queue is being torn down.
+
+Expected `404` responses before the first Music Assistant stream or Alexa skill
+invocation are shown as yellow idle states on `/status`; unexpected API
+failures remain red. These behaviors have regression coverage under `tests/`.
 
 ## How to Run
 
@@ -119,6 +125,16 @@ Notes:
 `/status`
 
 Returns a simple status page showing the local API health and an ASK CLI driven check for whether the Music Assistant skill exists, whether its endpoint matches `SKILL_HOSTNAME`, and whether testing is enabled. When the check is not green, the status page provides a quick link to `/setup`.
+
+### Playback command API
+
+Music Assistant creates commands with `POST /ma/push-url`. The skill claims one
+pending command with `GET /ma/claim-url`, using Alexa's opaque device ID to keep
+resume and hardware-control requests device-specific. Music Assistant can wait
+for Alexa's acknowledgement through
+`GET /ma/playback-status/<commandId>`. These `/ma` endpoints use the configured
+`APP_USERNAME` and `APP_PASSWORD`; the public Alexa request endpoint remains
+`POST /`.
 
 ### TLS Support
 TLS 1.3 is not supported

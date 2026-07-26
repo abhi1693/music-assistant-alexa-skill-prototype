@@ -81,6 +81,35 @@ class PlayLaterTests(unittest.TestCase):
         self.assertEqual(builder.directives, [])
         self.assertIsNone(builder.should_end_session)
 
+    def test_uses_correlated_tokens_when_provided(self):
+        builder = StubResponseBuilder()
+
+        with (
+            patch.dict(
+                os.environ,
+                {"MA_HOSTNAME": "music-stream.example.com"},
+                clear=False,
+            ),
+            patch.object(util, "push_alexa_metadata") as push_metadata,
+        ):
+            util.play_later(
+                "http://192.168.4.10:8097/flow/song.mp3",
+                builder,
+                playback_token="command-next",
+                expected_previous_token="command-current",
+            )
+
+        stream = builder.directives[0].audio_item.stream
+        self.assertEqual(stream.token, "command-next")
+        self.assertEqual(
+            stream.expected_previous_token,
+            "command-current",
+        )
+        push_metadata.assert_called_once_with(
+            stream.url,
+            command_id="command-next",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -61,22 +61,27 @@ def replace_ip_in_url(url, hostname):
         return url.replace(' ', '%20')
     return new_url.replace(' ', '%20')
 
-def audio_data(request):
+def audio_data(request, claim=False, alexa_device_id=None):
     # type: (Request) -> Dict
     try:
-        data.get_latest()
-        return data.info
+        if claim:
+            return data.claim_latest(alexa_device_id=alexa_device_id)
+        data.get_latest(alexa_device_id=alexa_device_id)
+        return dict(data.info)
     except Exception:
-        return
+        logging.exception("Failed to retrieve Music Assistant playback data")
+        return {}
 
 
-def push_alexa_metadata(url):
+def push_alexa_metadata(url, command_id=None, alexa_device_id=None):
     """Push the currently playing stream metadata to the Alexa API"""
     payload = {
         'streamUrl': url,
         'title': data.info.get("primaryText"),
         'secondary': data.info.get("secondaryText"),
-        'imageUrl': data.info.get("coverImageSource")
+        'imageUrl': data.info.get("coverImageSource"),
+        'commandId': command_id,
+        'alexaDeviceId': alexa_device_id,
     }
 
     try:
@@ -100,7 +105,56 @@ def push_alexa_metadata(url):
             logging.exception('Unexpected error while pushing Alexa metadata')
 
 
-def play(url, offset, text, response_builder, supports_apl=False):
+def record_playback_event(
+    request,
+    event_type,
+    alexa_device_id=None,
+):
+    """Record one correlated AudioPlayer event in the local bridge."""
+    command_id = getattr(request, 'token', None)
+    if not command_id:
+        logging.warning(
+            "Cannot correlate %s because the Alexa request has no token",
+            event_type,
+        )
+        return None
+
+    offset = getattr(request, 'offset_in_milliseconds', None)
+    error = getattr(request, 'error', None)
+    try:
+        from music_assistant_api import ma_routes
+        command = ma_routes.record_playback_event(
+            command_id,
+            event_type,
+            alexa_device_id=alexa_device_id,
+            offset_milliseconds=offset,
+            error=error,
+        )
+        if command is None:
+            logging.warning(
+                "Ignoring %s for unknown playback command %s",
+                event_type,
+                command_id,
+            )
+        return command
+    except Exception:
+        logging.exception(
+            "Failed to record %s for playback command %s",
+            event_type,
+            command_id,
+        )
+        return None
+
+
+def play(
+    url,
+    offset,
+    text,
+    response_builder,
+    supports_apl=False,
+    playback_token=None,
+    alexa_device_id=None,
+):
     """Function to play audio.
 
     Using the function to begin playing audio when:
@@ -157,12 +211,13 @@ def play(url, offset, text, response_builder, supports_apl=False):
                 response_builder.set_should_end_session(True)
                 return response_builder.response
 
+        token = playback_token or url
         response_builder.add_directive(
             PlayDirective(
                 play_behavior=PlayBehavior.REPLACE_ALL,
                 audio_item=AudioItem(
                     stream=Stream(
-                        token=url,
+                        token=token,
                         url=url,
                         offset_in_milliseconds=offset,
                         expected_previous_token=None
@@ -175,14 +230,26 @@ def play(url, offset, text, response_builder, supports_apl=False):
         response_builder.speak(text)
 
     try:
-        push_alexa_metadata(url)
+        if playback_token or alexa_device_id:
+            push_alexa_metadata(
+                url,
+                command_id=playback_token,
+                alexa_device_id=alexa_device_id,
+            )
+        else:
+            push_alexa_metadata(url)
     except Exception:
         logging.exception('Error while preparing Alexa API push payload')
 
     return response_builder.response
 
 
-def play_later(url, response_builder):
+def play_later(
+    url,
+    response_builder,
+    playback_token=None,
+    expected_previous_token=None,
+):
     """Queue the latest stream without interrupting current playback."""
     try:
         hostname = get_ma_hostname(raise_on_http_scheme=True)
@@ -199,22 +266,26 @@ def play_later(url, response_builder):
         return response_builder.response
 
     url = replace_ip_in_url(url, hostname)
+    token = playback_token or url
     response_builder.add_directive(
         PlayDirective(
             play_behavior=PlayBehavior.REPLACE_ENQUEUED,
             audio_item=AudioItem(
                 stream=Stream(
-                    token=url,
+                    token=token,
                     url=url,
                     offset_in_milliseconds=0,
-                    expected_previous_token=None
+                    expected_previous_token=expected_previous_token
                 )
             )
         )
     ).set_should_end_session(True)
 
     try:
-        push_alexa_metadata(url)
+        if playback_token:
+            push_alexa_metadata(url, command_id=playback_token)
+        else:
+            push_alexa_metadata(url)
     except Exception:
         logging.exception("Error while preparing queued Alexa metadata")
 

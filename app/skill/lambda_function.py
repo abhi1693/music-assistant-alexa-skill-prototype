@@ -90,13 +90,26 @@ logging.basicConfig(
 
 supports_apl = False
 
-def _get_stream_url(request):
+
+def _get_alexa_device_id(handler_input):
+    """Return Alexa's opaque device ID when present on the request."""
+    try:
+        return handler_input.request_envelope.context.system.device.device_id
+    except AttributeError:
+        return None
+
+
+def _get_stream_url(request, claim=False, alexa_device_id=None):
     """Return (url, audio_data) where url is resolved from util.audio_data.
 
     Handles multiple shapes returned by util.audio_data and never raises.
     """
     try:
-        audio = util.audio_data(request)
+        audio = util.audio_data(
+            request,
+            claim=claim,
+            alexa_device_id=alexa_device_id,
+        )
     except Exception:
         audio = None
 
@@ -173,19 +186,36 @@ class LaunchRequestOrPlayAudioHandler(AbstractRequestHandler):
 
         _ = handler_input.attributes_manager.request_attributes["_"]
         request = handler_input.request_envelope.request
-        url, _audio = _get_stream_url(request)
+        alexa_device_id = _get_alexa_device_id(handler_input)
+        url, audio = _get_stream_url(
+            request,
+            claim=True,
+            alexa_device_id=alexa_device_id,
+        )
         if not url:
-            logger.warning("No streamUrl available for Launch/Play request")
+            logger.warning(
+                "No pending stream command available for Launch/Play request "
+                "from Alexa device %s",
+                alexa_device_id,
+            )
             handler_input.response_builder.speak(
                 "Sorry, I could not retrieve the latest music stream from the API. Please check your setup.").set_should_end_session(True)
             return handler_input.response_builder.response
+        command_id = audio.get('commandId') if isinstance(audio, dict) else None
+        logger.info(
+            "Claimed playback command %s for Alexa device %s",
+            command_id,
+            alexa_device_id,
+        )
 
         return util.play(
             url=url,
             offset=0,
             text=data.WELCOME_MSG,
             response_builder=handler_input.response_builder,
-            supports_apl=supports_apl
+            supports_apl=supports_apl,
+            playback_token=command_id,
+            alexa_device_id=alexa_device_id,
         )
 
 
@@ -290,7 +320,10 @@ class ResumeIntentHandler(AbstractRequestHandler):
         logger.info("In ResumeIntentHandler")
         request = handler_input.request_envelope.request
         _ = handler_input.attributes_manager.request_attributes["_"]
-        url, _audio = _get_stream_url(request)
+        url, audio = _get_stream_url(
+            request,
+            alexa_device_id=_get_alexa_device_id(handler_input),
+        )
         if not url:
             logger.warning("No stream url available for Resume request")
             handler_input.response_builder.speak(
@@ -302,7 +335,11 @@ class ResumeIntentHandler(AbstractRequestHandler):
             offset=0,
             text=data.WELCOME_MSG,
             response_builder=handler_input.response_builder,
-            supports_apl=supports_apl
+            supports_apl=supports_apl,
+            playback_token=(
+                audio.get('commandId') if isinstance(audio, dict) else None
+            ),
+            alexa_device_id=_get_alexa_device_id(handler_input),
         )
 
 
@@ -342,7 +379,16 @@ class PlaybackStartedHandler(AbstractRequestHandler):
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
         logger.info("In PlaybackStartedHandler")
-        logger.info("Playback started")
+        request = handler_input.request_envelope.request
+        command = util.record_playback_event(
+            request,
+            "AudioPlayer.PlaybackStarted",
+            _get_alexa_device_id(handler_input),
+        )
+        logger.info(
+            "Playback started for command %s",
+            command.get("commandId") if command else getattr(request, "token", None),
+        )
         return handler_input.response_builder.response
 
 class PlaybackFinishedHandler(AbstractRequestHandler):
@@ -358,7 +404,16 @@ class PlaybackFinishedHandler(AbstractRequestHandler):
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
         logger.info("In PlaybackFinishedHandler")
-        logger.info("Playback finished")
+        request = handler_input.request_envelope.request
+        command = util.record_playback_event(
+            request,
+            "AudioPlayer.PlaybackFinished",
+            _get_alexa_device_id(handler_input),
+        )
+        logger.info(
+            "Playback finished for command %s",
+            command.get("commandId") if command else getattr(request, "token", None),
+        )
         return handler_input.response_builder.response
 
 
@@ -375,15 +430,21 @@ class PlaybackStoppedHandler(AbstractRequestHandler):
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
         logger.info("In PlaybackStoppedHandler")
-        logger.info("Playback stopped")
+        request = handler_input.request_envelope.request
+        command = util.record_playback_event(
+            request,
+            "AudioPlayer.PlaybackStopped",
+            _get_alexa_device_id(handler_input),
+        )
+        logger.info(
+            "Playback stopped for command %s",
+            command.get("commandId") if command else getattr(request, "token", None),
+        )
         return handler_input.response_builder.response
 
 
 class PlaybackNearlyFinishedHandler(AbstractRequestHandler):
-    """AudioPlayer.PlaybackNearlyFinished Directive received.
-
-    Replacing queue with the URL again. This should not happen on live streams.
-    """
+    """Record that the correlated playback command is nearly finished."""
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
         return is_request_type("AudioPlayer.PlaybackNearlyFinished")(handler_input)
@@ -393,22 +454,19 @@ class PlaybackNearlyFinishedHandler(AbstractRequestHandler):
         logger.info("In PlaybackNearlyFinishedHandler")
         logger.info("Playback nearly finished")
         request = handler_input.request_envelope.request
-        url, _audio = _get_stream_url(request)
-        if not url:
-            logger.warning("No stream url available for PlaybackNearlyFinished")
-            return handler_input.response_builder.response
-
-        return util.play_later(
-            url=url,
-            response_builder=handler_input.response_builder
+        util.record_playback_event(
+            request,
+            "AudioPlayer.PlaybackNearlyFinished",
+            _get_alexa_device_id(handler_input),
         )
+        # Music Assistant flow URLs are transient. Re-enqueuing the same URL
+        # after it nears completion races queue teardown and commonly yields a
+        # stale 404. Let Music Assistant issue the next playback command.
+        return handler_input.response_builder.response
 
 
 class PlaybackFailedHandler(AbstractRequestHandler):
-    """AudioPlayer.PlaybackFailed Directive received.
-
-    Logging the error and restarting playing with no output speech and card.
-    """
+    """Record the correlated playback failure without replaying a stale stream."""
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
         return is_request_type("AudioPlayer.PlaybackFailed")(handler_input)
@@ -418,18 +476,14 @@ class PlaybackFailedHandler(AbstractRequestHandler):
         logger.info("In PlaybackFailedHandler")
         request = handler_input.request_envelope.request
         logger.info("Playback failed: {}".format(request.error))
-        url, _audio = _get_stream_url(request)
-        if not url:
-            logger.warning("No stream url available for PlaybackFailed; skipping restart")
-            return handler_input.response_builder.response
-
-        return util.play(
-            url=url, 
-            offset=0, 
-            text=None,
-            response_builder=handler_input.response_builder,
-            supports_apl=supports_apl
+        util.record_playback_event(
+            request,
+            "AudioPlayer.PlaybackFailed",
+            _get_alexa_device_id(handler_input),
         )
+        # Do not restart the latest global stream here. The failed URL may be
+        # expired, and another player may already own the newest command.
+        return handler_input.response_builder.response
 
 
 class ExceptionEncounteredHandler(AbstractRequestHandler):
@@ -533,7 +587,10 @@ class PlayCommandHandler(AbstractRequestHandler):
         logger.info("In PlayCommandHandler")
         _ = handler_input.attributes_manager.request_attributes["_"]
         request = handler_input.request_envelope.request
-        url, _audio = _get_stream_url(request)
+        url, audio = _get_stream_url(
+            request,
+            alexa_device_id=_get_alexa_device_id(handler_input),
+        )
         if not url:
             logger.warning("No stream url available for PlayCommand; notifying user")
             handler_input.response_builder.speak(
@@ -545,7 +602,11 @@ class PlayCommandHandler(AbstractRequestHandler):
             offset=0,
             text=None,
             response_builder=handler_input.response_builder,
-            supports_apl=supports_apl
+            supports_apl=supports_apl,
+            playback_token=(
+                audio.get('commandId') if isinstance(audio, dict) else None
+            ),
+            alexa_device_id=_get_alexa_device_id(handler_input),
         )
 
 

@@ -12,6 +12,7 @@ from env_secrets import get_env_secret
 
 import urllib.request
 import urllib.error
+import urllib.parse
 import base64
 import re
 
@@ -55,25 +56,64 @@ info = {
 # Track the last version we've seen to avoid unnecessary updates
 _last_version = None
 
-def get_latest(api_hostname: Optional[str] = None,
-               path: str = '/ma/latest-url',
-               scheme: str = 'http',
-               timeout: int = 5,
-               username: Optional[str] = None,
-               password: Optional[str] = None) -> dict:
-    """Fetch latest stream info from music-assistant API and map to APL fields.
 
-    Expected JSON shape: {"streamUrl":..., "title":..., "artist":..., "album":..., "imageUrl":..., "version":..., "timestamp":...}
-    
-    Returns a dict with 'changed': bool indicating if the data actually changed.
-    """
-    global info, _last_version
+def _mapped_audio(payload: dict) -> dict:
+    """Map bridge command data to the fields used by the skill."""
+    stream_url = payload.get('streamUrl') or ''
+    title = payload.get('title', '') or ''
+    artist = payload.get('artist', '') or ''
+    album = payload.get('album', '') or ''
+    image = payload.get('imageUrl') or ''
 
+    secondary = ''
+    if artist and album:
+        secondary = f"{artist} - {album}"
+    elif artist:
+        secondary = artist
+    elif album:
+        secondary = album
+
+    if stream_url and isinstance(stream_url, str):
+        try:
+            stream_url = re.sub(r'(?i)\.flac(?=$|\?)', '.mp3', stream_url)
+        except Exception:
+            logging.exception('Failed rewriting stream URL extension for %s', stream_url)
+
+    return {
+        'audioSources': stream_url,
+        'backgroundImageSource': image,
+        'coverImageSource': image,
+        'headerAttributionImage': '',
+        'headerTitle': '',
+        'headerSubtitle': '',
+        'primaryText': title,
+        'secondaryText': secondary,
+        'commandId': payload.get('commandId'),
+        'playerId': payload.get('playerId'),
+        'targetDeviceSerial': payload.get('targetDeviceSerial'),
+        'targetDeviceFamily': payload.get('targetDeviceFamily'),
+        'targetDeviceName': payload.get('targetDeviceName'),
+        'version': payload.get('version'),
+    }
+
+
+def _fetch_payload(
+        api_hostname: Optional[str],
+        path: str,
+        scheme: str,
+        timeout: int,
+        username: Optional[str],
+        password: Optional[str],
+        query: Optional[dict] = None,
+) -> dict | None:
+    """Fetch one JSON object from the local bridge API."""
     port = os.environ.get('PORT')
     api_hostname = f'127.0.0.1:{port}'
-    
-    url = f"{scheme}://{api_hostname.rstrip('/')}{path if path.startswith('/') else '/' + path}"
-    # Prepare Authorization header if credentials provided (params or env)
+
+    request_path = path if path.startswith('/') else '/' + path
+    if query:
+        request_path = f"{request_path}?{urllib.parse.urlencode(query)}"
+    url = f"{scheme}://{api_hostname.rstrip('/')}{request_path}"
     headers = {}
 
     env_user = get_env_secret('APP_USERNAME')
@@ -82,73 +122,103 @@ def get_latest(api_hostname: Optional[str] = None,
         username = env_user
     if not password and env_pass:
         password = env_pass
-
-    # If auth_header looks like 'user:pass' (no 'Basic '), convert to Basic
-    auth_value = None
     if username and password:
-        b64 = base64.b64encode(f"{username}:{password}".encode('utf-8')).decode('ascii')
-        auth_value = f"Basic {b64}"
-
-    if auth_value:
-        headers['Authorization'] = auth_value
+        credentials = base64.b64encode(
+            f"{username}:{password}".encode('utf-8')
+        ).decode('ascii')
+        headers['Authorization'] = f"Basic {credentials}"
 
     try:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            code = getattr(resp, 'status', None) or getattr(resp, 'getcode', lambda: None)()
+            code = (
+                getattr(resp, 'status', None)
+                or getattr(resp, 'getcode', lambda: None)()
+            )
             if code and int(code) != 200:
                 logging.warning('Request to %s returned status %s', url, code)
-                return {'changed': False}
+                return None
             payload = json.loads(resp.read().decode('utf-8'))
             if not isinstance(payload, dict):
                 logging.warning('Unexpected payload shape from %s', url)
-                return {'changed': False}
-            
-            # Check if version has changed
-            current_version = payload.get('version')
-            if current_version is not None and current_version == _last_version:
-                logging.debug(f"Data version {current_version} unchanged, skipping update")
-                return {'changed': False}
-
-            stream_url = payload.get('streamUrl') or ''
-            title = payload.get('title', '') or ''
-            artist = payload.get('artist', '') or ''
-            album = payload.get('album', '') or ''
-            image = payload.get('imageUrl') or ''
-
-            secondary = ''
-            if artist and album:
-                secondary = f"{artist} - {album}"
-            elif artist:
-                secondary = artist
-            elif album:
-                secondary = album
-
-            # If the stream URL points to a FLAC file, rewrite to MP3 for compatibility
-            if stream_url and isinstance(stream_url, str):
-                try:
-                    stream_url = re.sub(r'(?i)\.flac(?=$|\?)', '.mp3', stream_url)
-                except Exception:
-                    logging.exception('Failed rewriting stream URL extension for %s', stream_url)
-
-            info.update({
-                'audioSources': stream_url,
-                'backgroundImageSource': image,
-                'coverImageSource': image,
-                'headerAttributionImage': '',
-                'headerTitle': '',
-                'headerSubtitle': '',
-                'primaryText': title,
-                'secondaryText': secondary
-            })
-            
-            # Update the last seen version
-            if current_version is not None:
-                _last_version = current_version
-            
-            return {'changed': True}
-    except urllib.error.URLError as e:
-        logging.warning('Could not reach %s: %s', url, e)
+                return None
+            return payload
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            logging.warning('Request to %s returned status %s', url, error.code)
+    except urllib.error.URLError as error:
+        logging.warning('Could not reach %s: %s', url, error)
     except Exception:
-        logging.exception('Error while loading latest data from %s', url)
-    return {'changed': False}
+        logging.exception('Error while loading data from %s', url)
+    return None
+
+def get_latest(api_hostname: Optional[str] = None,
+               path: str = '/ma/latest-url',
+               scheme: str = 'http',
+               timeout: int = 5,
+               username: Optional[str] = None,
+               password: Optional[str] = None,
+               alexa_device_id: Optional[str] = None) -> dict:
+    """Fetch latest stream info from music-assistant API and map to APL fields.
+
+    Expected JSON shape: {"streamUrl":..., "title":..., "artist":..., "album":..., "imageUrl":..., "version":..., "timestamp":...}
+
+    Returns a dict with 'changed': bool indicating if the data actually changed.
+    """
+    global info, _last_version
+
+    query = {}
+    if alexa_device_id:
+        query['alexaDeviceId'] = alexa_device_id
+    payload = _fetch_payload(
+        api_hostname,
+        path,
+        scheme,
+        timeout,
+        username,
+        password,
+        query=query,
+    )
+    if payload is None:
+        return {'changed': False}
+
+    current_version = payload.get('version')
+    if current_version is not None and current_version == _last_version:
+        logging.debug(
+            "Data version %s unchanged, skipping update",
+            current_version,
+        )
+        return {'changed': False}
+
+    info.update(_mapped_audio(payload))
+    if current_version is not None:
+        _last_version = current_version
+    return {'changed': True}
+
+
+def claim_latest(
+    alexa_device_id: Optional[str] = None,
+    api_hostname: Optional[str] = None,
+    scheme: str = 'http',
+    timeout: int = 5,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+) -> dict:
+    """Claim and return one pending Music Assistant playback command."""
+    query = {}
+    if alexa_device_id:
+        query['alexaDeviceId'] = alexa_device_id
+    payload = _fetch_payload(
+        api_hostname,
+        '/ma/claim-url',
+        scheme,
+        timeout,
+        username,
+        password,
+        query=query,
+    )
+    if payload is None:
+        return {}
+    mapped = _mapped_audio(payload)
+    info.update(mapped)
+    return mapped
