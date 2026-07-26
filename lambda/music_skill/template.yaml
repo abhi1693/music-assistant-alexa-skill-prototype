@@ -23,6 +23,8 @@ Parameters:
 Resources:
   MusicSkillFunction:
     Type: AWS::Serverless::Function
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       FunctionName: !Ref FunctionName
       Description: Resolves Music Assistant streams for Alexa multi-room playback
