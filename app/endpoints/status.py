@@ -16,6 +16,45 @@ from setup_helpers import has_functional_cli_config
 status_bp = Blueprint('status_bp', __name__)
 
 
+def _format_api_status(
+    response,
+    content_preview,
+    service_name,
+    endpoint,
+    idle_message,
+):
+    """Render successful, idle, and failed bridge API states consistently."""
+    if response.ok:
+        return (
+            f'<span class="led green"></span> {service_name} API reachable '
+            f'({response.status_code}) — {endpoint}'
+            f"<pre class='status-box' tabindex='0' "
+            "style='white-space:pre-wrap;background:#f6f6f6;padding:8px;"
+            "border-radius:4px;max-height:200px;overflow:auto;"
+            f"user-select:text'>{content_preview}</pre>"
+        )
+
+    if response.status_code == 404:
+        status_html = (
+            f'<span class="led yellow"></span> {idle_message}'
+        )
+        background = '#fff9e6'
+    else:
+        status_html = (
+            f'<span class="led red"></span> {service_name} API responded '
+            f'{response.status_code} for {endpoint}'
+        )
+        background = '#fdf2f2'
+
+    return (
+        status_html
+        + f"<pre class='status-box' tabindex='0' "
+        f"style='white-space:pre-wrap;background:{background};padding:8px;"
+        "border-radius:4px;max-height:200px;overflow:auto;"
+        f"user-select:text'>{content_preview}</pre>"
+    )
+
+
 def _build_status_json():
     api_user = get_env_secret('APP_USERNAME')
     api_pass = get_env_secret('APP_PASSWORD')
@@ -135,18 +174,13 @@ def _build_status_json():
             content_preview = escape(pretty)
         except Exception:
             content_preview = escape(content_text)
-        if resp.ok:
-            ma_api_html = (
-                f'<span class="led green"></span> Music Assistant API reachable ({resp.status_code}) — /ma/latest-url'
-                f"<pre class='status-box' tabindex='0' style='white-space:pre-wrap;background:#f6f6f6;padding:8px;border-radius:4px;max-height:200px;overflow:auto;user-select:text'>"
-                f"{content_preview}</pre>"
-            )
-        else:
-            ma_api_html = (
-                f'<span class="led red"></span> Music Assistant API responded {resp.status_code} for /ma/latest-url'
-                f"<pre class='status-box' tabindex='0' style='white-space:pre-wrap;background:#fdf2f2;padding:8px;border-radius:4px;max-height:200px;overflow:auto;user-select:text'>"
-                f"{content_preview}</pre>"
-            )
+        ma_api_html = _format_api_status(
+            resp,
+            content_preview,
+            'Music Assistant',
+            '/ma/latest-url',
+            'Music Assistant bridge idle - no stream pushed yet',
+        )
     except RequestException as e:
         ma_api_html = f'<span class="led red"></span> Error: {str(e)}'
 
@@ -165,18 +199,13 @@ def _build_status_json():
             content_preview = escape(pretty)
         except Exception:
             content_preview = escape(content_text)
-        if resp.ok:
-            alexa_api_html = (
-                f'<span class="led green"></span> Alexa API reachable ({resp.status_code}) — /alexa/latest-url'
-                f"<pre class='status-box' tabindex='0' style='white-space:pre-wrap;background:#f6f6f6;padding:8px;border-radius:4px;max-height:200px;overflow:auto;user-select:text'>"
-                f"{content_preview}</pre>"
-            )
-        else:
-            alexa_api_html = (
-                f'<span class="led red"></span> Alexa API responded {resp.status_code} for /alexa/latest-url'
-                f"<pre class='status-box' tabindex='0' style='white-space:pre-wrap;background:#fdf2f2;padding:8px;border-radius:4px;max-height:200px;overflow:auto;user-select:text'>"
-                f"{content_preview}</pre>"
-            )
+        alexa_api_html = _format_api_status(
+            resp,
+            content_preview,
+            'Alexa',
+            '/alexa/latest-url',
+            'Alexa bridge idle - no skill invocation yet',
+        )
     except RequestException as e:
         alexa_api_html = f'<span class="led red"></span> Error: {str(e)}'
 
@@ -230,18 +259,13 @@ def _compute_ma_api_html(api_user=None, api_pass=None):
             content_preview = escape(pretty)
         except Exception:
             content_preview = escape(content_text)
-        if resp.ok:
-            return (
-                f'<span class="led green"></span> Music Assistant API reachable ({resp.status_code}) — /ma/latest-url'
-                f"<pre class='status-box' tabindex='0' style='white-space:pre-wrap;background:#f6f6f6;padding:8px;border-radius:4px;max-height:200px;overflow:auto;user-select:text'>"
-                f"{content_preview}</pre>"
-            )
-        else:
-            return (
-                f'<span class="led red"></span> Music Assistant API responded {resp.status_code} for /ma/latest-url'
-                f"<pre class='status-box' tabindex='0' style='white-space:pre-wrap;background:#fdf2f2;padding:8px;border-radius:4px;max-height:200px;overflow:auto;user-select:text'>"
-                f"{content_preview}</pre>"
-            )
+        return _format_api_status(
+            resp,
+            content_preview,
+            'Music Assistant',
+            '/ma/latest-url',
+            'Music Assistant bridge idle - no stream pushed yet',
+        )
     except RequestException as e:
         return f'<span class="led red"></span> Error: {str(e)}'
 
@@ -263,18 +287,13 @@ def _compute_alexa_api_html(api_user=None, api_pass=None):
             content_preview = escape(pretty)
         except Exception:
             content_preview = escape(content_text)
-        if resp.ok:
-            return (
-                f'<span class="led green"></span> Alexa API reachable ({resp.status_code}) — /alexa/latest-url'
-                f"<pre class='status-box' tabindex='0' style='white-space:pre-wrap;background:#f6f6f6;padding:8px;border-radius:4px;max-height:200px;overflow:auto;user-select:text'>"
-                f"{content_preview}</pre>"
-            )
-        else:
-            return (
-                f'<span class="led red"></span> Alexa API responded {resp.status_code} for /alexa/latest-url'
-                f"<pre class='status-box' tabindex='0' style='white-space:pre-wrap;background:#fdf2f2;padding:8px;border-radius:4px;max-height:200px;overflow:auto;user-select:text'>"
-                f"{content_preview}</pre>"
-            )
+        return _format_api_status(
+            resp,
+            content_preview,
+            'Alexa',
+            '/alexa/latest-url',
+            'Alexa bridge idle - no skill invocation yet',
+        )
     except RequestException as e:
         return f'<span class="led red"></span> Error: {str(e)}'
 

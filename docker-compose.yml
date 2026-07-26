@@ -1,6 +1,6 @@
 services:
   music-assistant-skill:
-    image: ghcr.io/alams154/music-assistant-skill:latest
+    image: ghcr.io/abhi1693/music-assistant-skill:latest
     environment:
       - SKILL_HOSTNAME=<hostname> #required
       - MA_HOSTNAME=<hostname> #optional, if only using APL devices

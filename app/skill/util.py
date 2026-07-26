@@ -182,6 +182,45 @@ def play(url, offset, text, response_builder, supports_apl=False):
     return response_builder.response
 
 
+def play_later(url, response_builder):
+    """Queue the latest stream without interrupting current playback."""
+    try:
+        hostname = get_ma_hostname(raise_on_http_scheme=True)
+    except ValueError:
+        logging.error(
+            "Cannot queue Alexa stream because MA_HOSTNAME uses http://"
+        )
+        return response_builder.response
+
+    if not hostname or not url:
+        logging.error(
+            "Cannot queue Alexa stream without MA_HOSTNAME and a stream URL"
+        )
+        return response_builder.response
+
+    url = replace_ip_in_url(url, hostname)
+    response_builder.add_directive(
+        PlayDirective(
+            play_behavior=PlayBehavior.REPLACE_ENQUEUED,
+            audio_item=AudioItem(
+                stream=Stream(
+                    token=url,
+                    url=url,
+                    offset_in_milliseconds=0,
+                    expected_previous_token=None
+                )
+            )
+        )
+    ).set_should_end_session(True)
+
+    try:
+        push_alexa_metadata(url)
+    except Exception:
+        logging.exception("Error while preparing queued Alexa metadata")
+
+    return response_builder.response
+
+
 def stop(text, response_builder, supports_apl=False):
     """Issue stop directive to stop the audio.
 
@@ -366,4 +405,3 @@ def schedule_apl_refresh(response_builder, delay_ms=1000):
         )
     except Exception:
         logging.exception('Error while scheduling APL refresh')
-

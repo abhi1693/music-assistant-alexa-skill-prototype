@@ -1,6 +1,19 @@
 # Music Assistant Alexa Skill Prototype
 This project is an Alexa skill prototype for controlling the Music Assistant server. It provides a Flask-based web service, an Alexa skill handler, an API, and ASK CLI integration with Docker deployment support.
 
+This fork is the maintained source for
+`ghcr.io/abhi1693/music-assistant-skill`. It retains the original project
+history from
+[`alams154/music-assistant-alexa-skill-prototype`](https://github.com/alams154/music-assistant-alexa-skill-prototype).
+Published images include both `linux/amd64` and `linux/arm64`.
+
+The fork also restores queue continuation for screenless Echo devices:
+`AudioPlayer.PlaybackNearlyFinished` responds with a directive-only
+`REPLACE_ENQUEUED` request using the public `MA_HOSTNAME`. Expected `404`
+responses before the first Music Assistant stream or Alexa skill invocation are
+shown as yellow idle states on `/status`; unexpected API failures remain red.
+Both behaviors have regression coverage under `tests/`.
+
 ## How to Run
 
 #### Prerequisites
@@ -62,7 +75,7 @@ docker run --rm \
     -v "$(pwd)/ask_data:/root/.ask" \
     -v "$(pwd)/secrets/app_username.txt:/run/secrets/APP_USERNAME:ro" \
     -v "$(pwd)/secrets/app_password.txt:/run/secrets/APP_PASSWORD:ro" \
-    ghcr.io/alams154/music-assistant-alexa-skill-prototype:latest
+    ghcr.io/abhi1693/music-assistant-skill:latest
 ```
 
 Notes:
@@ -113,4 +126,3 @@ See [COMPATIBILITY.md](COMPATIBILITY.md) for known supported devices, languages,
 See [LIMITATIONS.md](LIMITATIONS.md) for known limitations.
 
 See [DISCLAIMER.md](DISCLAIMER.md) for security concerns and development disclosures.
-
