@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a Music model manifest for the existing Alexa skill."""
+"""Build a manifest for a separate Alexa Music skill."""
 
 from __future__ import annotations
 

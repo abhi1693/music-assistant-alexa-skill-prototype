@@ -30,12 +30,13 @@ Expected `404` responses before the first Music Assistant stream or Alexa skill
 invocation are shown as yellow idle states on `/status`; unexpected API
 failures remain red. These behaviors have regression coverage under `tests/`.
 
-The Music model reuses the existing Alexa skill ID. The repository does not
-create a second skill for this migration. Music Assistant pushes a correlated
-command to the bridge, `GetPlayableContent` claims it, `Initiate` returns its
-public HTTPS stream, and Amazon's `ItemPlayback*` events update the original
-command. The single Music Assistant flow stream is one Alexa queue item, so
-`GetNextItem` reports the queue as complete.
+The Music model uses a separate Alexa skill. Keep the Custom skill available
+until the Music skill has played successfully on physical Echo devices.
+Music Assistant pushes a correlated command to the bridge,
+`GetPlayableContent` claims it, `Initiate` returns its public HTTPS stream, and
+Amazon's `ItemPlayback*` events update the original command. The single Music
+Assistant flow stream is one Alexa queue item, so `GetNextItem` reports the
+queue as complete.
 
 ## How to Run
 
@@ -153,32 +154,41 @@ does not reuse the Custom model's device-to-serial affinity. That allows Amazon
 to route the same correlated command to a multi-room group. The Lambda reads
 commands and writes lifecycle events with the same Basic credentials.
 
-### Convert the existing skill to the Music model
+### Create the separate Music skill
 
-Do not run the `/setup` Custom Skill flow during this conversion. Amazon
+Do not run the `/setup` Custom Skill flow for the Music skill. Amazon
 requires the Music endpoint to be an AWS Lambda function, while the existing
 container remains the music-service bridge.
 
-1. Deploy `lambda/music_skill/template.yaml` in `us-east-1` with AWS SAM. Pass
-   the existing Alexa skill ID, `https://<bridge-host>/ma`, and the bridge Basic
-   credentials as stack parameters. The template restricts the Lambda trigger
-   to that skill ID.
+1. Deploy `lambda/music_skill/template.yaml` in `us-east-1` with AWS SAM. For
+   the initial deployment, pass the Custom skill ID only as a temporary
+   `AlexaSkillId` placeholder, plus `https://<bridge-host>/ma` and the bridge
+   Basic credentials. The template restricts the Lambda trigger to the
+   configured skill ID.
 2. Read the `MusicSkillFunctionArn` stack output.
-3. Build and inspect the replacement manifest without changing Amazon:
+3. Build and inspect the new manifest without changing Amazon:
 
    ```sh
-   scripts/update_existing_music_skill.sh \
-     --skill-id amzn1.ask.skill.example \
+   scripts/create_music_skill.sh \
      --lambda-arn arn:aws:lambda:us-east-1:123456789012:function:music-assistant-alexa-music
    ```
 
-4. Re-run the same command with `--apply`. It first saves the current Custom
-   manifest to `build/custom-skill-backup.json`, verifies that backup contains
-   the expected Custom model, and then updates that same skill ID to the Music
-   model. The script has no create-skill operation.
-5. Enable the development skill and test a physical Echo before enabling the
-   Music Assistant provider's music-model mode. For rollback, pass the saved
-   Custom manifest to `ask smapi update-skill-manifest`.
+4. Re-run the same command with `--apply`. It creates a separate Music skill
+   and prints the new skill ID. The command never updates or deletes the Custom
+   skill and refuses to create a duplicate when a Music skill already exists.
+5. Redeploy the SAM stack with the new Music skill ID as `AlexaSkillId`. Verify
+   the Lambda resource policy references the new ID before enabling the skill.
+6. Enable the development skill and test a physical Echo before enabling the
+   Music Assistant provider's music-model mode. The Custom skill remains
+   unchanged as the fallback until this test succeeds.
+
+Alexa Music is a vendor-gated manifest feature. If creation fails with
+`DENIED_FEATURE_ACCESS` for `$.manifest.apis.music`, deleting or converting the
+Custom skill will not help. Open a case from **Contact Us** in the Alexa
+Developer Console and ask Amazon to enable the Music feature for the developer
+vendor and required locale. Include the failing operation
+`POST /v1/skills`, the locale, and the exact violation. Keep the Custom skill
+and do not enable Music mode in Music Assistant until Amazon grants access.
 
 The generated Music manifest contains only `manifest.apis.music`, because
 Amazon does not permit Music and Custom models together. It declares

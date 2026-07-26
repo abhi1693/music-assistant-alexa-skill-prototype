@@ -1,4 +1,4 @@
-"""Tests for building the existing skill's Music model manifest."""
+"""Tests for building the separate Alexa Music skill manifest."""
 
 import importlib.util
 import json
