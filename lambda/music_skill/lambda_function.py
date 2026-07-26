@@ -19,6 +19,10 @@ from uuid import uuid4
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.INFO)
+BRIDGE_USER_AGENT = (
+    "MusicAssistantAlexaMusicSkill/1.0 "
+    "(+https://github.com/abhi1693/music-assistant-alexa-skill-prototype)"
+)
 
 
 class BridgeError(RuntimeError):
@@ -116,7 +120,10 @@ class BridgeClient:
         payload: dict[str, Any] | None = None,
         allow_not_found: bool = False,
     ) -> dict[str, Any] | None:
-        headers = {"Accept": "application/json"}
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": BRIDGE_USER_AGENT,
+        }
         data = None
         if self._username or self._password:
             token = base64.b64encode(

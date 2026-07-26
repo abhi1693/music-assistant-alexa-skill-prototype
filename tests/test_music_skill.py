@@ -4,6 +4,7 @@ import importlib
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -196,6 +197,25 @@ class MusicSkillTests(unittest.TestCase):
 
         with self.assertRaises(lambda_function.BridgeError):
             lambda_function.handle(event, self.bridge)
+
+    @mock.patch.object(lambda_function.request, "urlopen")
+    def test_bridge_uses_explicit_api_user_agent(self, mock_urlopen):
+        response = mock.MagicMock()
+        response.read.return_value = b'{"status":"ok"}'
+        mock_urlopen.return_value.__enter__.return_value = response
+        bridge = lambda_function.BridgeClient(
+            "https://bridge.example/ma",
+            "user",
+            "password",
+        )
+
+        bridge.get_command("command-123")
+
+        sent_request = mock_urlopen.call_args.args[0]
+        self.assertEqual(
+            sent_request.get_header("User-agent"),
+            lambda_function.BRIDGE_USER_AGENT,
+        )
 
 
 if __name__ == "__main__":
