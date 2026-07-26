@@ -12,8 +12,10 @@ on:
       - app/**
       - assets/icons/**
       - scripts/ask_create_skill.sh
+      - scripts/build_music_skill_manifest.py
       - scripts/build_skill_manifest.py
       - scripts/find_skills_to_delete.py
+      - scripts/update_existing_music_skill.sh
       - tests/**
       - VERSION
   pull_request:
@@ -26,8 +28,10 @@ on:
       - app/**
       - assets/icons/**
       - scripts/ask_create_skill.sh
+      - scripts/build_music_skill_manifest.py
       - scripts/build_skill_manifest.py
       - scripts/find_skills_to_delete.py
+      - scripts/update_existing_music_skill.sh
       - tests/**
       - VERSION
   workflow_dispatch:

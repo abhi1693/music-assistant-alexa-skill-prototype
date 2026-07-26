@@ -153,10 +153,15 @@ RUN ln -s /app/src /app/app
 
 COPY assets/icons /app/assets/icons
 COPY scripts/ask_create_skill.sh \
+    scripts/build_music_skill_manifest.py \
     scripts/build_skill_manifest.py \
     scripts/find_skills_to_delete.py \
+    scripts/update_existing_music_skill.sh \
     /app/scripts/
-RUN chmod 0755 /app/scripts/ask_create_skill.sh
+RUN chmod 0755 \
+    /app/scripts/ask_create_skill.sh \
+    /app/scripts/build_music_skill_manifest.py \
+    /app/scripts/update_existing_music_skill.sh
 
 ENV AWS_DEFAULT_REGION=us-east-1 \
     TZ=UTC \
