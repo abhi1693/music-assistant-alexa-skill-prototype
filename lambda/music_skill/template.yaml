@@ -34,13 +34,13 @@ Resources:
       Handler: lambda_function.lambda_handler
       CodeUri: .
       MemorySize: 256
-      Timeout: 2
+      Timeout: 3
       Environment:
         Variables:
           BRIDGE_URL: !Ref BridgeUrl
           BRIDGE_USERNAME: !Ref BridgeUsername
           BRIDGE_PASSWORD: !Ref BridgePassword
-          BRIDGE_TIMEOUT_SECONDS: "0.35"
+          BRIDGE_TIMEOUT_SECONDS: "2"
       Events:
         AlexaMusicSkill:
           Type: AlexaSkill
