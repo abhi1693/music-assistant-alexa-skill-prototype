@@ -184,9 +184,10 @@ container remains the music-service bridge.
 
 Alexa Music is a vendor-gated manifest feature. If creation fails with
 `DENIED_FEATURE_ACCESS` for `$.manifest.apis.music`, deleting or converting the
-Custom skill will not help. Open a case from **Contact Us** in the Alexa
-Developer Console and ask Amazon to enable the Music feature for the developer
-vendor and required locale. Include the failing operation
+Custom skill will not help. Open a case from
+[Contact Us](https://developer.amazon.com/alexa/console/contact-us) in the
+Alexa Developer Console and ask Amazon to enable the Music feature for the
+developer vendor and required locale. Include the failing operation
 `POST /v1/skills`, the locale, and the exact violation. Keep the Custom skill
 and do not enable Music mode in Music Assistant until Amazon grants access.
 
