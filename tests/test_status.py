@@ -51,7 +51,7 @@ class ApiStatusTests(unittest.TestCase):
         )
         self.assertIn('background:#fdf2f2', html)
 
-    def test_manifest_parser_prefers_music_lambda_over_icon_urls(self):
+    def test_manifest_parser_reads_custom_endpoint_over_icon_urls(self):
         manifest = {
             "manifest": {
                 "publishingInformation": {
@@ -62,12 +62,9 @@ class ApiStatusTests(unittest.TestCase):
                     }
                 },
                 "apis": {
-                    "music": {
+                    "custom": {
                         "endpoint": {
-                            "uri": (
-                                "arn:aws:lambda:us-east-1:123456789012:"
-                                "function:music-assistant"
-                            )
+                            "uri": "https://alexa.example.com"
                         }
                     }
                 },
@@ -78,12 +75,8 @@ class ApiStatusTests(unittest.TestCase):
             json.dumps(manifest)
         )
 
-        self.assertEqual(model, "Music")
-        self.assertEqual(
-            endpoint,
-            "arn:aws:lambda:us-east-1:123456789012:"
-            "function:music-assistant",
-        )
+        self.assertEqual(model, "Custom")
+        self.assertEqual(endpoint, "https://alexa.example.com")
         self.assertEqual(locales, ["en-IN"])
 
 

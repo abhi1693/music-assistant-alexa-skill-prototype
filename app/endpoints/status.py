@@ -42,10 +42,7 @@ def _parse_skill_manifest_output(
 
     model = None
     api_config = None
-    if isinstance(apis.get('music'), dict):
-        model = 'Music'
-        api_config = apis['music']
-    elif isinstance(apis.get('custom'), dict):
+    if isinstance(apis.get('custom'), dict):
         model = 'Custom'
         api_config = apis['custom']
 
@@ -168,23 +165,9 @@ def _build_status_json():
                     else:
                         try:
                             locale_display = ','.join(locale_list) if locale_list else 'unknown'
-                            if model == 'Music':
-                                lambda_configured = bool(
-                                    re.fullmatch(
-                                        r'arn:(aws|aws-us-gov|aws-cn):'
-                                        r'lambda:[a-z0-9-]+:\d{12}:'
-                                        r'function:[A-Za-z0-9-_]+'
-                                        r'(?::[A-Za-z0-9-_]+)?',
-                                        endpoint_uri,
-                                    )
-                                )
-                                if lambda_configured and testing_enabled:
-                                    skill_ask_html = f'<span class="led green"></span> Music Assistant Music model found; Lambda endpoint configured; testing enabled; locale: {escape(locale_display)}'
-                                    is_green = True
-                                elif lambda_configured:
-                                    skill_ask_html = '<span class="led yellow"></span> Music Assistant Music model found; Lambda endpoint configured; testing NOT enabled'
-                                else:
-                                    skill_ask_html = '<span class="led red"></span> Music Assistant Music model endpoint is not a Lambda ARN'
+                            if model != 'Custom':
+                                model_display = model or 'unknown'
+                                skill_ask_html = f'<span class="led red"></span> Music Assistant {escape(model_display)} model is unsupported; run setup for the Custom model'
                             else:
                                 parsed = urllib.parse.urlparse(endpoint_uri)
                                 manifest_host = parsed.netloc
@@ -203,7 +186,7 @@ def _build_status_json():
                             skill_ask_html = f'<span class="led yellow"></span> Music Assistant {escape(model_display)} model found; endpoint parse failed ({testing_msg})'
 
                     try:
-                        if not is_green and model != 'Music':
+                        if not is_green:
                             skill_ask_html += ' <button onclick="window.location=\'/setup\'" style="margin-left:8px">Open Setup</button>'
                     except Exception:
                         pass

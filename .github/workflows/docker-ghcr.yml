@@ -12,9 +12,7 @@ on:
       - app/**
       - assets/icons/**
       - scripts/ask_create_skill.sh
-      - scripts/build_music_skill_manifest.py
       - scripts/build_skill_manifest.py
-      - scripts/create_music_skill.sh
       - scripts/find_skills_to_delete.py
       - tests/**
       - VERSION
@@ -28,9 +26,7 @@ on:
       - app/**
       - assets/icons/**
       - scripts/ask_create_skill.sh
-      - scripts/build_music_skill_manifest.py
       - scripts/build_skill_manifest.py
-      - scripts/create_music_skill.sh
       - scripts/find_skills_to_delete.py
       - tests/**
       - VERSION

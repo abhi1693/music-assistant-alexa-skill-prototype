@@ -63,30 +63,6 @@ OPENAPI_SPEC: Dict[str, Any] = {
                 },
             }
         },
-        "/ma/music/claim": {
-            "get": {
-                "summary": "Claim a pending command for the Alexa Music model",
-                "parameters": [
-                    {
-                        "name": "alexaUserId",
-                        "in": "query",
-                        "required": False,
-                        "schema": {"type": "string"},
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Claimed playback command",
-                        "content": {
-                            "application/json": {
-                                "schema": {"type": "object"},
-                            }
-                        },
-                    },
-                    "404": {"description": "No pending playback command"},
-                },
-            }
-        },
         "/ma/playback-status/{commandId}": {
             "get": {
                 "summary": "Get one correlated playback command",

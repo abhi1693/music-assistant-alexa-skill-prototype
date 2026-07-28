@@ -125,34 +125,6 @@ class PlaybackCommandStore:
                 return deepcopy(command)
         return None
 
-    def claim_music(
-        self,
-        alexa_user_id: str | None = None,
-    ) -> dict[str, Any] | None:
-        """Claim the oldest pending command for the Alexa Music model.
-
-        Music Skill directives identify the Alexa account, not one physical
-        endpoint. Do not apply the Custom Skill's device-to-serial affinity:
-        Amazon can route the same request to an Echo multi-room group.
-        """
-        now = time.time()
-        with self._lock:
-            self._purge(now)
-            while self._pending:
-                command_id = self._pending.popleft()
-                command = self._commands.get(command_id)
-                if command is None or command["status"] != "pending":
-                    continue
-                command["status"] = "claimed"
-                command["lastEvent"] = "claimed"
-                if alexa_user_id:
-                    command["alexaUserId"] = alexa_user_id
-                command["claimedAt"] = now
-                command["updatedAt"] = now
-                self._commands.move_to_end(command_id)
-                return deepcopy(command)
-        return None
-
     def record_event(
         self,
         command_id: str,

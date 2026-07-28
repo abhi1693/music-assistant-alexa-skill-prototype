@@ -1,9 +1,7 @@
 # Music Assistant Alexa Skill Prototype
 This project connects Music Assistant to Alexa. It provides the retained Flask
-bridge, the original Custom Skill handler, and an AWS Lambda adapter for the
-Alexa Music Skill API. The Music model is the path for native Amazon
-multi-room playback; Amazon does not allow Custom and Music models in the same
-skill manifest.
+bridge and the original Custom Skill handler for playback on one Alexa device
+at a time.
 
 This fork is the maintained source for
 `ghcr.io/abhi1693/music-assistant-skill`. It retains the original project
@@ -29,14 +27,6 @@ and return `404` while the old queue is being torn down.
 Expected `404` responses before the first Music Assistant stream or Alexa skill
 invocation are shown as yellow idle states on `/status`; unexpected API
 failures remain red. These behaviors have regression coverage under `tests/`.
-
-The Music model uses a separate Alexa skill. Keep the Custom skill available
-until the Music skill has played successfully on physical Echo devices.
-Music Assistant pushes a correlated command to the bridge,
-`GetPlayableContent` claims it, `Initiate` returns its public HTTPS stream, and
-Amazon's `ItemPlayback*` events update the original command. The single Music
-Assistant flow stream is one Alexa queue item, so `GetNextItem` reports the
-queue as complete.
 
 ## How to Run
 
@@ -153,54 +143,6 @@ command that a later Echo invocation could claim.
 Pause and resume reuse that correlated command. A resume request moves the
 command back to a pending acknowledgement state so Music Assistant does not
 show playback until Alexa sends a new `AudioPlayer.PlaybackStarted` event.
-
-The Music model uses `GET /ma/music/claim` instead. Music directives identify
-the Alexa account rather than one physical Echo, so this endpoint intentionally
-does not reuse the Custom model's device-to-serial affinity. That allows Amazon
-to route the same correlated command to a multi-room group. The Lambda reads
-commands and writes lifecycle events with the same Basic credentials.
-
-### Create the separate Music skill
-
-Do not run the `/setup` Custom Skill flow for the Music skill. Amazon
-requires the Music endpoint to be an AWS Lambda function, while the existing
-container remains the music-service bridge.
-
-1. Deploy `lambda/music_skill/template.yaml` in `us-east-1` with AWS SAM. For
-   the initial deployment, pass the Custom skill ID only as a temporary
-   `AlexaSkillId` placeholder, plus `https://<bridge-host>/ma` and the bridge
-   Basic credentials. The template restricts the Lambda trigger to the
-   configured skill ID.
-2. Read the `MusicSkillFunctionArn` stack output.
-3. Build and inspect the new manifest without changing Amazon:
-
-   ```sh
-   scripts/create_music_skill.sh \
-     --lambda-arn arn:aws:lambda:us-east-1:123456789012:function:music-assistant-alexa-music
-   ```
-
-4. Re-run the same command with `--apply`. It creates a separate Music skill
-   and prints the new skill ID. The command never updates or deletes the Custom
-   skill and refuses to create a duplicate when a Music skill already exists.
-5. Redeploy the SAM stack with the new Music skill ID as `AlexaSkillId`. Verify
-   the Lambda resource policy references the new ID before enabling the skill.
-6. Enable the development skill and test a physical Echo before enabling the
-   Music Assistant provider's music-model mode. The Custom skill remains
-   unchanged as the fallback until this test succeeds.
-
-Alexa Music is a vendor-gated manifest feature. If creation fails with
-`DENIED_FEATURE_ACCESS` for `$.manifest.apis.music`, deleting or converting the
-Custom skill will not help. Open a case from
-[Contact Us](https://developer.amazon.com/alexa/console/contact-us) in the
-Alexa Developer Console and ask Amazon to enable the Music feature for the
-developer vendor and required locale. Include the failing operation
-`POST /v1/skills`, the locale, and the exact violation. Keep the Custom skill
-and do not enable Music mode in Music Assistant until Amazon grants access.
-
-The generated Music manifest contains only `manifest.apis.music`, because
-Amazon does not permit Music and Custom models together. It declares
-`GetPlayableContent`, `Initiate`, `GetNextItem`, `GetPreviousItem`, and
-`GetItem`, plus playback lifecycle subscriptions for command correlation.
 
 ### TLS Support
 TLS 1.3 is not supported

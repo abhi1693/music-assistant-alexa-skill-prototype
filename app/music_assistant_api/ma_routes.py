@@ -68,14 +68,6 @@ def register_routes(bp):
             return jsonify({'error': 'No pending playback command'}), 404
         return jsonify(command)
 
-    @bp.route('/music/claim', methods=['GET'])
-    def claim_music():
-        """Claim a pending command for an Alexa Music Skill directive."""
-        command = _store.claim_music(request.args.get('alexaUserId'))
-        if command is None:
-            return jsonify({'error': 'No pending playback command'}), 404
-        return jsonify(command)
-
     @bp.route('/playback-status/<command_id>', methods=['GET'])
     def playback_status(command_id):
         """Return the correlated playback status for Music Assistant."""
